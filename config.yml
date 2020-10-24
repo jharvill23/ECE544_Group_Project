@@ -1,0 +1,45 @@
+use_gpu: true
+
+data:
+    sr: 16000
+    shift_ms: 10
+    fftl: 1024
+    num_mels: 80
+    hop_length: 160
+    top_db: 120
+
+directories:
+    root: /home/john/Datasets/VCTK-Corpus/wav48/
+    text: /home/john/Datasets/VCTK-Corpus/txt/
+    all_audio: audio/
+    speakers: speakers/
+    silence_removed: silence_removed/
+    features: features/
+    exps: exps/
+    mcep: mcep/
+
+model:
+    name: BLSTM
+    hidden_size: 200
+    num_layers: 4
+    bidirectional: true
+    num_linear_layers: 2
+    batch_first: true
+    dropout: 0.1
+    lr: 0.0001
+
+train:
+    log_step: 100
+    model_save_step: 5000
+    num_epochs: 50000
+    batch_size: 16
+    class_history: 50
+    regular_epochs: 10000
+
+
+
+
+
+
+
+
