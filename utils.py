@@ -8,6 +8,7 @@ import yaml
 from easydict import EasyDict as edict
 import random
 import re
+import numpy as np
 
 config = edict(yaml.load(open('config.yml'), Loader=yaml.SafeLoader))
 
@@ -40,6 +41,16 @@ def get_text_data(dir=config.directories.text):
             file_text[filename] = text
     joblib.dump(file_text, 'text_data.pkl')
 
+def get_speaker2class_and_class2speaker():
+    s2c = {}
+    c2s = {}
+    for i, speaker in enumerate(speaker_info):
+        s2c[speaker] = i
+        c2s[i] = speaker
+    joblib.dump(s2c, 'speaker2class.pkl')
+    joblib.dump(c2s, 'class2speaker.pkl')
+
+
 """Build basic pickle files for organized data"""
 if not os.path.exists('speaker-info.pkl'):
     get_speaker_info()
@@ -49,6 +60,11 @@ if not os.path.exists('text_data.pkl'):
     get_text_data()
 else:
     text_data = joblib.load('text_data.pkl')
+if not os.path.exists('speaker2class.pkl') or not os.path.exists('class2speaker.pkl'):
+    get_speaker2class_and_class2speaker()
+else:
+    speaker2class = joblib.load('speaker2class.pkl')
+    class2speaker = joblib.load('class2speaker.pkl')
 
 def get_metadata(file):
     utterance = file.split('/')[-1][:-4]
@@ -57,13 +73,19 @@ def get_metadata(file):
     utt_number = utterance.split('_')[1]
     additional_data = speaker_info[speaker]
     text = text_data[utterance]
+    """Get one-hot vector for speaker as well"""
+    one_hot = np.zeros(shape=(len(speaker2class),))
+    one_hot[speaker2class[speaker]] = 1
     return_data = {'speaker': speaker, 'utt_number': utt_number, 'text': text,
                    'speaker_age': additional_data['age'], 'speaker_gender': additional_data['gender'],
-                   'speaker_accent': additional_data['accent']}
+                   'speaker_accent': additional_data['accent'], 'one_hot': one_hot}
     return return_data
 
 def main():
     """"""
+    # file = './features/p225_001.pkl'
+    # metadata = get_metadata(file)
+    # stop = None
 
 if __name__ == '__main__':
     main()
