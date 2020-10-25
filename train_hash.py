@@ -16,8 +16,10 @@ from Levenshtein import distance as levenshtein_distance
 import multiprocessing
 import concurrent.futures
 import random
-import model
+#import model
 from dataset import Dataset
+import model_hash
+import torch.nn.functional as F
 
 config = edict(yaml.load(open('config.yml'), Loader=yaml.SafeLoader))
 
@@ -54,61 +56,28 @@ class Solver(object):
         self.log_dir = os.path.join(exp_dir, 'logs')
         self.model_save_dir = os.path.join(exp_dir, 'models')
         self.train_data_dir = config.directories.features
-        self.predict_dir = os.path.join(exp_dir, 'predictions')
 
         if not os.path.isdir(self.log_dir):
             os.mkdir(self.log_dir)
         if not os.path.isdir(self.model_save_dir):
             os.mkdir(self.model_save_dir)
-        if not os.path.isdir(self.predict_dir):
-            os.mkdir(self.predict_dir)
 
-        self.partition = 'full_filenames_data_partition.pkl'
+        self.partition = 'partition.pkl'
         """Partition file"""
         if TRAIN:  # only copy these when running a training session, not eval session
-            # if not os.path.exists('ctc_partition.pkl'):
-            #     utils.get_ctc_partition_offline_augmentation()
-            # if not os.path.exists('baseline_ctc_partition.pkl'):
-            #     utils.get_baseline_ctc_partition_offline_augmentation()
-            # if not os.path.exists('dcgan_ctc_partition.pkl'):
-            #     utils.get_dcgan_ctc_partition_offline_augmentation()
-            # if not os.path.exists('original_unseen_ctc_partition.pkl'):
-            #     utils.get_original_unseen_ctc_partition_offline_augmentation()
-            # if not os.path.exists('unseen_normal_ctc_partition.pkl'):
-            #     utils.get_unseen_normal_ctc_partition_offline_augmentation()
-            # copy partition to exp_dir then use that for trial (just in case you change partition for other trials)
-            # if BASELINE:
-            #     shutil.copy(src='baseline_ctc_partition.pkl', dst=os.path.join(exp_dir, 'baseline_ctc_partition.pkl'))
-            #     self.partition = os.path.join(exp_dir, 'baseline_ctc_partition.pkl')
-            # elif ATTENTION:
-            #     shutil.copy(src='ctc_partition.pkl', dst=os.path.join(exp_dir, 'ctc_partition.pkl'))
-            #     self.partition = os.path.join(exp_dir, 'ctc_partition.pkl')
-            # elif DCGAN:
-            #     shutil.copy(src='dcgan_ctc_partition.pkl', dst=os.path.join(exp_dir, 'dcgan_ctc_partition.pkl'))
-            #     self.partition = os.path.join(exp_dir, 'dcgan_ctc_partition.pkl')
-            # elif ORIGINAL_UNSEEN_BASELINE:
-            #     shutil.copy(src='original_unseen_ctc_partition.pkl', dst=os.path.join(exp_dir, 'original_unseen_ctc_partition.pkl'))
-            #     self.partition = os.path.join(exp_dir, 'original_unseen_ctc_partition.pkl')
-            # elif UNSEEN_NORMAL_BASELINE:
-            #     shutil.copy(src='unseen_normal_ctc_partition.pkl',
-            #                 dst=os.path.join(exp_dir, 'unseen_normal_ctc_partition.pkl'))
-            #     self.partition = os.path.join(exp_dir, 'unseen_normal_ctc_partition.pkl')
-            shutil.copy(src='full_filenames_data_partition.pkl',
-                        dst=os.path.join(exp_dir, 'full_filenames_data_partition.pkl'))
+            if not os.path.exists('partition.pkl'):
+                utils.get_partition()
+            shutil.copy(src='partition.pkl',
+                        dst=os.path.join(exp_dir, 'partition.pkl'))
             # copy config as well
             shutil.copy(src='config.yml', dst=os.path.join(exp_dir, 'config.yml'))
-            # copy dict
-            shutil.copy(src='dict.pkl', dst=os.path.join(exp_dir, 'dict.pkl'))
-            # copy phones
-            shutil.copy(src='phones.pkl', dst=os.path.join(exp_dir, 'phones.pkl'))
-            # copy wordlist
-            shutil.copy(src='wordlist.pkl', dst=os.path.join(exp_dir, 'wordlist.pkl'))
+
 
         # Step size.
         self.log_step = config.train.log_step
         self.model_save_step = config.train.model_save_step
 
-        # Build the model
+        # Build the model SKIP FOR NOW SO YOU CAN GET DATALOADING DONE
         self.build_model()
         if LOAD_MODEL:
             self.restore_model()
@@ -117,7 +86,7 @@ class Solver(object):
 
     def build_model(self):
         """Build the model"""
-        self.G = model.CTCmodel(config)
+        self.G = model_hash.DAMH(config)
         self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr)
         self.print_network(self.G, 'G')
         self.G.to(self.device)
@@ -236,72 +205,80 @@ class Solver(object):
 
         return val_loss_value
 
+    def get_train_val_split(self):
+        partition = joblib.load('partition.pkl')
+        train = partition['train']
+        val = partition['val']
+        return train, val
+
+    def custom_loss(self, classification_outputs, hash_outputs, binary_outputs, W, one_hots, speaker_indices, m):
+        s = config.hash.s
+        lambda_ = 0.1*(1/config.model.binary_embedding_length)
+        num_examples = classification_outputs.shape[0]  # could use config.train.batch_size too
+        margin_loss = 0
+        hash_loss = 0
+        for i in range(num_examples):  # num_examples is N in paper
+            """Margin loss"""
+            index = speaker_indices[i]
+            sub_sum = 0
+            for j in range(1, one_hots.shape[0]):
+                if j != index:
+                    W_j = torch.squeeze(W[j, :])
+                    h_i = torch.squeeze(hash_outputs[i])
+                    theta_ji = F.cosine_similarity(W_j, h_i, dim=0)
+                    term = torch.exp(s*theta_ji)
+                    sub_sum += term
+            W_yi = torch.squeeze(W[index, :])
+            h_yi = torch.squeeze(hash_outputs[i])
+            theta_yi_i = F.cosine_similarity(W_yi, h_yi, dim=0)
+            main_term = torch.exp(s*(theta_yi_i-m))
+            example_term = torch.log(main_term/(main_term + sub_sum))
+            margin_loss += example_term
+            """Hash loss"""
+            hash_loss += torch.sum(torch.square(hash_outputs[i] - binary_outputs[i]))
+        loss = (-1/num_examples)*margin_loss + (lambda_/num_examples)*hash_loss
+        return loss
+
     def train(self):
-        """Initialize history matrix"""
-        self.history = np.random.normal(loc=0, scale=0.1, size=(len(self.s2i), config.train.class_history))
-        """"""
-        """"""
         iterations = 0
-        if RESUME_TRAINING:
-            iterations = 170000
-        """Get train/test"""
-        if WORDSPLIT:
-            train, test = self.get_train_test_wordsplit()
-        elif UTTERANCE_SPLIT:
-            train, val = self.get_train_test_utterance_split()
-        wordlist = joblib.load('wordlist.pkl')
-        dictionary = joblib.load('dict.pkl')
-        phones = joblib.load('phones.pkl')
-        metadata_help = {'wordlist': wordlist, 'dictionary': dictionary, 'phones': phones}
-        p2c = utils.phone2class(phones)
-        c2p = utils.class2phone(phones)
-        """CTC loss"""
-        self.ctc_loss = nn.CTCLoss(blank=p2c[config.data.PAD_token], reduction='mean')
-        # self.ctc_loss = nn.CTCLoss(blank=p2c[config.data.PAD_token], reduction='none')
+        """Get train/val"""
+        train, val = self.get_train_val_split()
+        m = 0
         for epoch in range(config.train.num_epochs):
+            if m < 0.35:
+                m += 0.02
+                if m > 0.35:
+                    m = 0.35
             """Make dataloader"""
-            train_data = Dataset({'files': train, 'mode': 'train', 'metadata_help': metadata_help})
+            train_data = Dataset({'files': train})
             train_gen = data.DataLoader(train_data, batch_size=config.train.batch_size,
                                         shuffle=True, collate_fn=train_data.collate, drop_last=True)
-            val_data = Dataset({'files': val, 'mode': 'train', 'metadata_help': metadata_help})
+            val_data = Dataset({'files': val})
             val_gen = data.DataLoader(val_data, batch_size=config.train.batch_size,
                                         shuffle=True, collate_fn=val_data.collate, drop_last=True)
 
             for batch_number, features in enumerate(train_gen):
                 spectrograms = features['spectrograms']
-                phones = features['phones']
-                input_lengths = features['input_lengths']
-                target_lengths = features['target_lengths']
+                one_hots = features['one_hots']
                 metadata = features["metadata"]
-                # batch_speakers = [x['speaker'] for x in metadata]
-                self.G = self.G.train()
+                speaker_indices = features["speaker_indices"]
 
-                """Make input_lengths and target_lengths torch ints"""
-                input_lengths = input_lengths.to(torch.int32)
-                target_lengths = target_lengths.to(torch.int32)
-                phones = phones.to(torch.int32)
-
+                """Pass spectrogram through ResNet"""
+                self.G = self.G.train()  # we have batch normalization layers so this is necessary
                 spectrograms = spectrograms.to(self.torch_type)
+                classification_outputs, hash_outputs, binary_outputs, W = self.G(spectrograms)
 
-                outputs = self.G(spectrograms)
+                """Take loss"""
+                loss = self.custom_loss(classification_outputs=classification_outputs,
+                                        hash_outputs=hash_outputs,
+                                        binary_outputs=binary_outputs,
+                                        W=W,
+                                        one_hots=one_hots,
+                                        speaker_indices=speaker_indices, m=m)
 
-                outputs = outputs.permute(1, 0, 2)  # swap batch and sequence length dimension for CTC loss
-
-                loss = self.ctc_loss(log_probs=outputs, targets=phones,
-                                     input_lengths=input_lengths, target_lengths=target_lengths)
-
-                """Update the loss history"""
-                # self.update_history(loss, batch_speakers)
-                # if epoch >= config.train.regular_epochs:
-                #     loss_weights = self.get_loss_weights(batch_speakers, type='fair')
-                # else:
-                #     loss_weights = self.get_loss_weights(batch_speakers, type='unfair')
-                # loss = loss * loss_weights
-
-                # Backward and optimize.
+                """Backward and optimize"""
                 self.reset_grad()
                 loss.backward()
-                # loss.sum().backward()
                 self.g_optimizer.step()
 
                 if iterations % self.log_step == 0:
@@ -311,10 +288,10 @@ class Solver(object):
 
                 if iterations % self.model_save_step == 0:
                     """Calculate validation loss"""
-                    val_loss = self.val_loss(val=val_gen, iterations=iterations)
-                    print(str(iterations) + ', val_loss: ' + str(val_loss))
-                    if self.use_tensorboard:
-                        self.logger.scalar_summary('val_loss', val_loss, iterations)
+                    # val_loss = self.val_loss(val=val_gen, iterations=iterations)
+                    # print(str(iterations) + ', val_loss: ' + str(val_loss))
+                    # if self.use_tensorboard:
+                    #     self.logger.scalar_summary('val_loss', val_loss, iterations)
                 """Save model checkpoints."""
                 if iterations % self.model_save_step == 0:
                     G_path = os.path.join(self.model_save_dir, '{}-G.ckpt'.format(iterations))
