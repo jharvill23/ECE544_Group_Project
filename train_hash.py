@@ -26,7 +26,7 @@ config = edict(yaml.load(open('config.yml'), Loader=yaml.SafeLoader))
 if not os.path.exists(config.directories.exps):
     os.mkdir(config.directories.exps)
 
-trial = 'trial_1_hash_training'
+trial = 'trial_2_hash_training'
 exp_dir = os.path.join(config.directories.exps, trial)
 if not os.path.isdir(exp_dir):
     os.mkdir(exp_dir)
@@ -36,6 +36,8 @@ LOAD_MODEL = False
 RESUME_TRAINING = False
 if RESUME_TRAINING:
     LOAD_MODEL = True
+
+EVAL = False
 
 class Solver(object):
     """Solver"""
@@ -120,33 +122,7 @@ class Solver(object):
     def restore_model(self):
         """Restore the model"""
         print('Loading the trained models... ')
-        # G_path = './exps/PARTITION_1_trial_1_attention_vc_CTC_TRAINING/models/310000-G.ckpt'
-        if GLOBAL_PARTITION == 1:
-            if ATTENTION:
-                G_path = './exps/PARTITION_1_trial_2_attention_vc_CTC_TRAINING/models/460000-G.ckpt'
-            if DCGAN:
-                G_path = './exps/PARTITION_1_trial_2_dcgan_vc_CTC_TRAINING/models/585000-G.ckpt'
-            if BASELINE:
-                G_path = './exps/PARTITION_1_trial_2_Limited_Baseline_CTC_TRAINING/models/260000-G.ckpt'
-            if ORIGINAL_UNSEEN_BASELINE:
-                G_path = './exps/PARTITION_1_trial_2_Oracle_Baseline_CTC_TRAINING/models/305000-G.ckpt'
-                # G_path = './exps/PARTITION_1_trial_3_Oracle_Baseline_CTC_TRAINING/models/230000-G.ckpt'
-            if UNSEEN_NORMAL_BASELINE:
-                G_path = './exps/PARTITION_1_trial_2_Lack_Baseline_CTC_TRAINING/models/420000-G.ckpt'
-        elif GLOBAL_PARTITION == 2:
-            if ATTENTION:
-                G_path = './exps/PARTITION_2_trial_1_attention_vc_CTC_training/models/370000-G.ckpt'
-            if DCGAN:
-                G_path = './exps/PARTITION_2_trial_1_dcgan_vc_CTC_training/models/470000-G.ckpt'
-            if ORIGINAL_UNSEEN_BASELINE:
-                G_path = './exps/PARTITION_2_trial_1_Oracle_Baseline_CTC_training/models/240000-G.ckpt'
-            if BASELINE:
-                G_path = './exps/PARTITION_2_trial_1_Limited_Baseline_CTC_training/models/260000-G.ckpt'
-            if UNSEEN_NORMAL_BASELINE:
-                G_path = './exps/PARTITION_2_trial_1_Lack_Baseline_CTC_training/models/415000-G.ckpt'
-            if RESUME_TRAINING:
-                if UNSEEN_NORMAL_BASELINE:
-                    G_path = './exps/PARTITION_2_trial_1_Lack_Baseline_CTC_training/models/170000-G.ckpt'
+        G_path = './exps/trial_1_hash_training/models/260000-G.ckpt'
         g_checkpoint = self._load(G_path)
         self.G.load_state_dict(g_checkpoint['model'])
         self.g_optimizer.load_state_dict(g_checkpoint['optimizer'])
@@ -258,49 +234,85 @@ class Solver(object):
                                         shuffle=True, collate_fn=val_data.collate, drop_last=True)
 
             for batch_number, features in enumerate(train_gen):
-                spectrograms = features['spectrograms']
-                one_hots = features['one_hots']
-                metadata = features["metadata"]
-                speaker_indices = features["speaker_indices"]
+                try:
+                    spectrograms = features['spectrograms']
+                    one_hots = features['one_hots']
+                    metadata = features["metadata"]
+                    speaker_indices = features["speaker_indices"]
 
-                """Pass spectrogram through ResNet"""
-                self.G = self.G.train()  # we have batch normalization layers so this is necessary
+                    """Pass spectrogram through ResNet"""
+                    self.G = self.G.train()  # we have batch normalization layers so this is necessary
+                    spectrograms = spectrograms.to(self.torch_type)
+                    classification_outputs, hash_outputs, binary_outputs, W = self.G(spectrograms)
+
+                    """Take loss"""
+                    loss = self.custom_loss(classification_outputs=classification_outputs,
+                                            hash_outputs=hash_outputs,
+                                            binary_outputs=binary_outputs,
+                                            W=W,
+                                            one_hots=one_hots,
+                                            speaker_indices=speaker_indices, m=m)
+
+                    """Backward and optimize"""
+                    self.reset_grad()
+                    loss.backward()
+                    self.g_optimizer.step()
+
+                    if iterations % self.log_step == 0:
+                        print(str(iterations) + ', loss: ' + str(loss.item()))
+                        if self.use_tensorboard:
+                            self.logger.scalar_summary('loss', loss.item(), iterations)
+                            self.logger.scalar_summary('m', m, iterations)
+
+                    if iterations % self.model_save_step == 0:
+                        """Calculate validation loss"""
+                        # val_loss = self.val_loss(val=val_gen, iterations=iterations)
+                        # print(str(iterations) + ', val_loss: ' + str(val_loss))
+                        # if self.use_tensorboard:
+                        #     self.logger.scalar_summary('val_loss', val_loss, iterations)
+                    """Save model checkpoints."""
+                    if iterations % self.model_save_step == 0:
+                        G_path = os.path.join(self.model_save_dir, '{}-G.ckpt'.format(iterations))
+                        torch.save({'model': self.G.state_dict(),
+                                    'optimizer': self.g_optimizer.state_dict()}, G_path)
+                        print('Saved model checkpoints into {}...'.format(self.model_save_dir))
+
+                    iterations += 1
+                except:
+                    """GPU ran out of memory, batch too big"""
+
+    def eval(self):
+        if not os.path.isdir(config.directories.hashed_embeddings):
+            os.mkdir(config.directories.hashed_embeddings)
+        train, val = self.get_train_val_split()
+        train_data = Dataset({'files': train})
+        train_gen = data.DataLoader(train_data, batch_size=1,
+                                    shuffle=True, collate_fn=train_data.collate, drop_last=True)
+        val_data = Dataset({'files': val})
+        val_gen = data.DataLoader(val_data, batch_size=1,
+                                  shuffle=True, collate_fn=val_data.collate, drop_last=True)
+        for batch_number, features in tqdm(enumerate(train_gen)):
+            spectrograms = features['spectrograms']
+            one_hots = features['one_hots']
+            metadata = features["metadata"]
+            speaker_indices = features["speaker_indices"]
+
+            """Pass spectrogram through ResNet"""
+            try:
+                self.G = self.G.eval()  # we have batch normalization layers so this is necessary
+                # Keep in mind, ^^^ could be messing up predictions (try .train() too, had problems
+                # with this in the past
                 spectrograms = spectrograms.to(self.torch_type)
                 classification_outputs, hash_outputs, binary_outputs, W = self.G(spectrograms)
 
-                """Take loss"""
-                loss = self.custom_loss(classification_outputs=classification_outputs,
-                                        hash_outputs=hash_outputs,
-                                        binary_outputs=binary_outputs,
-                                        W=W,
-                                        one_hots=one_hots,
-                                        speaker_indices=speaker_indices, m=m)
+                binary_outputs = binary_outputs.detach().cpu().numpy()
+                binary_outputs = np.squeeze(binary_outputs)
 
-                """Backward and optimize"""
-                self.reset_grad()
-                loss.backward()
-                self.g_optimizer.step()
-
-                if iterations % self.log_step == 0:
-                    print(str(iterations) + ', loss: ' + str(loss.item()))
-                    if self.use_tensorboard:
-                        self.logger.scalar_summary('loss', loss.item(), iterations)
-
-                if iterations % self.model_save_step == 0:
-                    """Calculate validation loss"""
-                    # val_loss = self.val_loss(val=val_gen, iterations=iterations)
-                    # print(str(iterations) + ', val_loss: ' + str(val_loss))
-                    # if self.use_tensorboard:
-                    #     self.logger.scalar_summary('val_loss', val_loss, iterations)
-                """Save model checkpoints."""
-                if iterations % self.model_save_step == 0:
-                    G_path = os.path.join(self.model_save_dir, '{}-G.ckpt'.format(iterations))
-                    torch.save({'model': self.G.state_dict(),
-                                'optimizer': self.g_optimizer.state_dict()}, G_path)
-                    print('Saved model checkpoints into {}...'.format(self.model_save_dir))
-
-                iterations += 1
-
+                utterance_name = 'p' + metadata[0]['speaker'] + '_' + metadata[0]['utt_number'] + '.pkl'
+                dump_path = os.path.join(config.directories.hashed_embeddings, utterance_name)
+                joblib.dump(binary_outputs, dump_path)
+            except:
+                print('Audio too short...')
 
     def to_gpu(self, tensor):
         tensor = tensor.to(self.torch_type)
@@ -322,6 +334,8 @@ def main():
     solver = Solver()
     if TRAIN:
         solver.train()
+    if EVAL:
+        solver.eval()
 
 
 

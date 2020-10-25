@@ -47,9 +47,9 @@ class DAMH(nn.Module):
         x = self.avg_pooling(x)
         x = x.squeeze()
         x = self.hash_layer(x)
+        x = F.tanh(x)
         hash_outputs = x
         binary_x = torch.sign(x)
-        x = F.tanh(x)
         x = self.classification_layer(x)
         return x, hash_outputs, binary_x, self.classification_layer.weight
 

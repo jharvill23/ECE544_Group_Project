@@ -16,7 +16,7 @@ directories:
     silence_removed: silence_removed/
     features: features/
     exps: exps/
-    mcep: mcep/
+    hashed_embeddings: hashed/
 
 model:
     batch_first: true
@@ -25,9 +25,9 @@ model:
 
 train:
     log_step: 50
-    model_save_step: 5000
+    model_save_step: 20000
     num_epochs: 50000
-    batch_size: 4
+    batch_size: 8
     class_history: 50
     regular_epochs: 10000
 
