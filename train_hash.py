@@ -26,7 +26,7 @@ config = edict(yaml.load(open('config.yml'), Loader=yaml.SafeLoader))
 if not os.path.exists(config.directories.exps):
     os.mkdir(config.directories.exps)
 
-trial = 'trial_2_hash_training'
+trial = 'trial_6_hash_training'
 exp_dir = os.path.join(config.directories.exps, trial)
 if not os.path.isdir(exp_dir):
     os.mkdir(exp_dir)
@@ -212,8 +212,10 @@ class Solver(object):
             margin_loss += example_term
             """Hash loss"""
             hash_loss += torch.sum(torch.square(hash_outputs[i] - binary_outputs[i]))
-        loss = (-1/num_examples)*margin_loss + (lambda_/num_examples)*hash_loss
-        return loss
+        margin_loss = (-1/num_examples)*margin_loss
+        hash_loss = (lambda_/num_examples)*hash_loss
+        loss = margin_loss + hash_loss
+        return loss, margin_loss, hash_loss
 
     def train(self):
         iterations = 0
@@ -246,7 +248,7 @@ class Solver(object):
                     classification_outputs, hash_outputs, binary_outputs, W = self.G(spectrograms)
 
                     """Take loss"""
-                    loss = self.custom_loss(classification_outputs=classification_outputs,
+                    loss, margin_loss, hash_loss = self.custom_loss(classification_outputs=classification_outputs,
                                             hash_outputs=hash_outputs,
                                             binary_outputs=binary_outputs,
                                             W=W,
@@ -259,10 +261,13 @@ class Solver(object):
                     self.g_optimizer.step()
 
                     if iterations % self.log_step == 0:
-                        print(str(iterations) + ', loss: ' + str(loss.item()))
+                        # print('speaker: ' + metadata['speaker'])
+                        print(str(iterations) + ', loss: ' + str(loss.item()) + ', margin: ' + str(margin_loss.item()) + ', hash: ' + str(hash_loss.item()))
                         if self.use_tensorboard:
                             self.logger.scalar_summary('loss', loss.item(), iterations)
                             self.logger.scalar_summary('m', m, iterations)
+                            self.logger.scalar_summary('margin_loss', margin_loss.item(), iterations)
+                            self.logger.scalar_summary('hash_loss', hash_loss.item(), iterations)
 
                     if iterations % self.model_save_step == 0:
                         """Calculate validation loss"""
