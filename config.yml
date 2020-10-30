@@ -16,25 +16,27 @@ directories:
     silence_removed: silence_removed/
     features: features/
     exps: exps/
-    mcep: mcep/
+    hashed_embeddings: hashed/
 
 model:
-    name: BLSTM
-    hidden_size: 200
-    num_layers: 4
-    bidirectional: true
-    num_linear_layers: 2
     batch_first: true
-    dropout: 0.1
-    lr: 0.0001
+    lr: 0.01
+    binary_embedding_length: 256
 
 train:
-    log_step: 100
-    model_save_step: 5000
+    log_step: 50
+    model_save_step: 20000
     num_epochs: 50000
-    batch_size: 16
+    batch_size: 8
     class_history: 50
     regular_epochs: 10000
+
+hash:
+    train_val_split: 0.98
+    s: 30
+
+vctk:
+    num_speakers: 109
 
 
 
