@@ -26,7 +26,7 @@ config = edict(yaml.load(open('config.yml'), Loader=yaml.SafeLoader))
 if not os.path.exists(config.directories.exps):
     os.mkdir(config.directories.exps)
 
-trial = 'trial_6_hash_training'
+trial = 'trial_7_hash_training_resnet18'
 exp_dir = os.path.join(config.directories.exps, trial)
 if not os.path.isdir(exp_dir):
     os.mkdir(exp_dir)
@@ -88,7 +88,8 @@ class Solver(object):
 
     def build_model(self):
         """Build the model"""
-        self.G = model_hash.DAMH(config)
+        # self.G = model_hash.DAMH(config)
+        self.G = model_hash.ResNet18DAMH(config)
         self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr)
         self.print_network(self.G, 'G')
         self.G.to(self.device)
@@ -236,7 +237,7 @@ class Solver(object):
                                         shuffle=True, collate_fn=val_data.collate, drop_last=True)
 
             for batch_number, features in enumerate(train_gen):
-                try:
+                # try:
                     spectrograms = features['spectrograms']
                     one_hots = features['one_hots']
                     metadata = features["metadata"]
@@ -283,8 +284,8 @@ class Solver(object):
                         print('Saved model checkpoints into {}...'.format(self.model_save_dir))
 
                     iterations += 1
-                except:
-                    """GPU ran out of memory, batch too big"""
+                # except:
+                #     """GPU ran out of memory, batch too big"""
 
     def eval(self):
         if not os.path.isdir(config.directories.hashed_embeddings):

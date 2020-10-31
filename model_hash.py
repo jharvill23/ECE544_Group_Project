@@ -83,3 +83,28 @@ class block(nn.Module):
         # x = self.layer2(x)
         # x = self.batchnorm2(x)
         return x
+
+class ResNet18DAMH(nn.Module):
+    def __init__(self, config):
+        super(ResNet18DAMH, self).__init__()
+        self.config = config
+        self.num_mels = config.data.num_mels
+        self.batch_first = config.model.batch_first
+
+        self.model = torch.hub.load('pytorch/vision:v0.6.0', 'resnet18', pretrained=False)
+
+        self.avg_pooling = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+        self.hash_layer = nn.Linear(in_features=512, out_features=config.model.binary_embedding_length)
+        self.classification_layer = nn.Linear(in_features=config.model.binary_embedding_length,
+                                              out_features=config.vctk.num_speakers)
+
+    def forward(self, x):
+        x = self.model(x)
+        x = self.avg_pooling(x)
+        x = x.squeeze()
+        x = self.hash_layer(x)
+        x = F.tanh(x)
+        hash_outputs = x
+        binary_x = torch.sign(x)
+        x = self.classification_layer(x)
+        return x, hash_outputs, binary_x, self.classification_layer.weight
