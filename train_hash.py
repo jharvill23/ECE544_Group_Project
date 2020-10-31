@@ -38,6 +38,7 @@ if RESUME_TRAINING:
     LOAD_MODEL = True
 
 EVAL = False
+RESNET18 = True
 
 class Solver(object):
     """Solver"""
@@ -88,8 +89,10 @@ class Solver(object):
 
     def build_model(self):
         """Build the model"""
-        # self.G = model_hash.DAMH(config)
-        self.G = model_hash.ResNet18DAMH(config)
+        if not RESNET18:
+            self.G = model_hash.DAMH(config)
+        else:
+            self.G = model_hash.ResNet18DAMH(config)
         self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr)
         self.print_network(self.G, 'G')
         self.G.to(self.device)
@@ -246,6 +249,8 @@ class Solver(object):
                     """Pass spectrogram through ResNet"""
                     self.G = self.G.train()  # we have batch normalization layers so this is necessary
                     spectrograms = spectrograms.to(self.torch_type)
+                    if RESNET18:
+                        spectrograms = spectrograms.repeat(1, 3, 1, 1)
                     classification_outputs, hash_outputs, binary_outputs, W = self.G(spectrograms)
 
                     """Take loss"""

@@ -93,14 +93,14 @@ class ResNet18DAMH(nn.Module):
 
         self.model = torch.hub.load('pytorch/vision:v0.6.0', 'resnet18', pretrained=False)
 
-        self.avg_pooling = nn.AdaptiveAvgPool2d(output_size=(1, 1))
-        self.hash_layer = nn.Linear(in_features=512, out_features=config.model.binary_embedding_length)
+        # self.avg_pooling = nn.AdaptiveAvgPool1d(output_size=(512))
+        self.hash_layer = nn.Linear(in_features=1000, out_features=config.model.binary_embedding_length)
         self.classification_layer = nn.Linear(in_features=config.model.binary_embedding_length,
                                               out_features=config.vctk.num_speakers)
 
     def forward(self, x):
         x = self.model(x)
-        x = self.avg_pooling(x)
+        # x = self.avg_pooling(x)
         x = x.squeeze()
         x = self.hash_layer(x)
         x = F.tanh(x)
