@@ -210,4 +210,4 @@ def main(all_files):
             """"""
 
 if __name__ == '__main__':
-    main()
+    """"""
