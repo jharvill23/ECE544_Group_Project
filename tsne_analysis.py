@@ -43,7 +43,7 @@ def get_tsne(continuous, binary):
                 #embeddings[i] = data
                 i += 1
             embeddings = np.asarray(embeddings)
-            tsne_embeddings = TSNE(n_components=2, verbose=10).fit_transform(embeddings)
+            tsne_embeddings = TSNE(n_components=2, verbose=10, perplexity=5).fit_transform(embeddings)
             data_to_save = {'filelist': files, 'tsne': tsne_embeddings}  # file in same row as embedding in numpy array
             joblib.dump(data_to_save, 'continuous_tsne_embeddings.pkl')
             tsne_embeddings = data_to_save
