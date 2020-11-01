@@ -15,7 +15,7 @@ if not sys.warnoptions:
 
 config = edict(yaml.load(open('config.yml'), Loader=yaml.SafeLoader))
 
-STAGE = '2'
+STAGE = '012'
 """Stage 0 collects all files"""
 """Stage 1 is moving all recordings to common directory as wav files instead of flac"""
 """Stage 2 is removing silence"""
