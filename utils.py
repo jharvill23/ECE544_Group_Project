@@ -12,7 +12,7 @@ import numpy as np
 
 config = edict(yaml.load(open('config.yml'), Loader=yaml.SafeLoader))
 
-def get_speaker_info(file='speaker-info.txt'):
+def get_speaker_info(file=config.directories.speaker_info):
     """Note: Speaker 280 doesn't have info for some reason"""
     speaker_info = {}
     with open(file) as f:
@@ -48,21 +48,13 @@ def get_speaker2class_and_class2speaker():
     s2c = {}
     c2s = {}
     for i, speaker in enumerate(collect_files(config.directories.speakers)):
-        speaker = speaker.split('/')[-1][1:4]
+        speaker = speaker.split('/')[-1]
+        speaker = speaker.split('.')[0]
         s2c[speaker] = i
         c2s[i] = speaker
     joblib.dump(s2c, 'speaker2class.pkl')
     joblib.dump(c2s, 'class2speaker.pkl')
     return s2c, c2s
-
-def check_weird_files():
-    files = collect_files(config.directories.features)
-    weird_files = []
-    for file in files:
-        speaker_number = file.split('/')[-1][1:4]
-        if speaker_number not in speaker2class:
-            weird_files.append(file)
-    return weird_files
 
 """Build basic pickle files for organized data"""
 if not os.path.exists('speaker-info.pkl'):
@@ -82,15 +74,15 @@ else:
 def get_metadata(file):
     utterance = file.split('/')[-1][:-4]
     speaker = utterance.split('_')[0]
-    speaker = speaker.replace('p', '')
     utt_number = utterance.split('_')[1]
+    mic = utterance.split('_')[2]
     try:
         additional_data = speaker_info[speaker]
     except:
-        """This is for speaker 280, data isn't provided"""
+        """This is for speaker 280 in old dataset, data wasn't provided"""
         additional_data = {'age': None, 'gender': None, 'accent': None}
     try:
-        text = text_data[utterance]
+        text = text_data[speaker + '_' + utt_number]
     except:
         text = None
     """Get one-hot vector for speaker as well"""
@@ -98,7 +90,7 @@ def get_metadata(file):
     one_hot[speaker2class[speaker]] = 1
     return_data = {'speaker': speaker, 'utt_number': utt_number, 'text': text,
                    'speaker_age': additional_data['age'], 'speaker_gender': additional_data['gender'],
-                   'speaker_accent': additional_data['accent'], 'one_hot': one_hot}
+                   'speaker_accent': additional_data['accent'], 'one_hot': one_hot, 'mic': mic}
     return return_data
 
 def get_partition():
@@ -113,10 +105,8 @@ def get_partition():
 
 def main():
     """"""
-    # weird_files = check_weird_files()
-    # file = './features/p280_001.pkl'
-    # metadata = get_metadata(file)
-    # stop = None
+    # metadata = get_metadata('./features/p225_004_mic2.pkl')
+
 
 if __name__ == '__main__':
     main()

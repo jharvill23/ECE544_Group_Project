@@ -4,12 +4,21 @@ import joblib
 import silence_removal
 import yaml
 from easydict import EasyDict as edict
+import shutil
+import flac_to_wav
+import sys
+
+"""Librosa issues a warning for every flac file so we need below if statement"""
+if not sys.warnoptions:
+    import warnings
+    warnings.simplefilter("ignore")
 
 config = edict(yaml.load(open('config.yml'), Loader=yaml.SafeLoader))
 
-STAGE = '01'
-"""Stage 0 collects all files and moves to common directory audio/"""
-"""Stage 1 is removing silence from recordings"""
+STAGE = '012'
+"""Stage 0 collects all files"""
+"""Stage 1 is moving all recordings to common directory as wav files instead of flac"""
+"""Stage 2 is removing silence"""
 
 def collect_files(directory):
     all_files = []
@@ -19,10 +28,10 @@ def collect_files(directory):
             all_files.append(filename)
     return all_files
 
-def keep_wav(files):
+def keep_flac(files):
     new_files = []
     for f in files:
-        if '.wav' in f:
+        if '.flac' in f:
             new_files.append(f)
     return new_files
 
@@ -41,12 +50,21 @@ def main():
                 files = joblib.load(speaker)
             else:
                 files.extend(joblib.load(speaker))
-        files = keep_wav(files)  # make sure all files are .wav files
+        files = keep_flac(files)  # make sure all files are .flac files
 
     if '1' in STAGE:
-        if not os.path.isdir(config.directories.silence_removed):
-            os.mkdir(config.directories.silence_removed)
-        """Remove silence from recordings"""
+        if not os.path.isdir(config.directories.all_audio):
+            os.mkdir(config.directories.all_audio)
+        """Move the recordings"""
+        flac_to_wav.main(files)
+        # for file in tqdm(files):
+        #     name = file.split('/')[-1]
+        #     dump_path = os.path.join(config.directories.all_audio, name)
+        #     shutil.copy(file, dump_path)
+    if '2' in STAGE:
+        # if not os.path.isdir(config.directories.silence_removed):
+        #     os.mkdir(config.directories.silence_removed)
+        files = collect_files(config.directories.all_audio)
         silence_removal.main(files)
 
 if __name__ == "__main__":

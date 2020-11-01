@@ -11,6 +11,12 @@ from easydict import EasyDict as edict
 import pysptk
 from pysptk.synthesis import Synthesizer, MLSADF
 import matplotlib.pyplot as plt
+import sys
+
+"""Librosa issues a warning for every flac file so we need below if statement"""
+if not sys.warnoptions:
+    import warnings
+    warnings.simplefilter("ignore")
 
 config = edict(yaml.load(open('config.yml'), Loader=yaml.SafeLoader))
 
@@ -55,18 +61,19 @@ class Mel_log_spect(object):
 
 def process(file):
     try:
-        audio, _ = librosa.core.load(file, sr=config.data.sr)
-        feature_processor = Mel_log_spect()
-        features = feature_processor.get_Mel_log_spect(audio)
-        mel_log_dump_path = os.path.join(config.directories.features, file.split('/')[-1][:-4] + '.pkl')
+        audio, sr = librosa.core.load(file, sr=config.data.sr)
+        if sr == config.data.sr:
+            feature_processor = Mel_log_spect()
+            features = feature_processor.get_Mel_log_spect(audio)
+            mel_log_dump_path = os.path.join(config.directories.features, file.split('/')[-1][:-4] + '.pkl')
 
-        # plt.subplot(211)
-        # plt.imshow(features.T)
-        # plt.subplot(212)
-        # plt.imshow(features.T)
-        # plt.show()
+            # plt.subplot(211)
+            # plt.imshow(features.T)
+            # plt.subplot(212)
+            # plt.imshow(features.T)
+            # plt.show()
 
-        joblib.dump(features, mel_log_dump_path)
+            joblib.dump(features, mel_log_dump_path)
 
     except:
         print("Had trouble processing file " + file + " ...")
@@ -75,7 +82,7 @@ def main():
     if not os.path.isdir(config.directories.features):
         os.mkdir(config.directories.features)
     files = collect_files(config.directories.silence_removed)
-    process(files[0])
+    # process(files[0])
     with concurrent.futures.ProcessPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
         for _ in tqdm(executor.map(process, files)):
             """"""
