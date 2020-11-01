@@ -17,6 +17,7 @@ directories:
     features: features/
     exps: exps/
     hashed_embeddings: hashed/
+    continuous_embeddings: cont_embed/
 
 model:
     batch_first: true
