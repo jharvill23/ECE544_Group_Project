@@ -26,18 +26,18 @@ config = edict(yaml.load(open('config.yml'), Loader=yaml.SafeLoader))
 if not os.path.exists(config.directories.exps):
     os.mkdir(config.directories.exps)
 
-trial = 'trial_7_hash_training_resnet18'
+trial = 'trial_8_hash_training_resnet18'
 exp_dir = os.path.join(config.directories.exps, trial)
 if not os.path.isdir(exp_dir):
     os.mkdir(exp_dir)
 
-TRAIN = True
-LOAD_MODEL = False
+TRAIN = False
+LOAD_MODEL = True
 RESUME_TRAINING = False
 if RESUME_TRAINING:
     LOAD_MODEL = True
 
-EVAL = False
+EVAL = True
 RESNET18 = True
 
 class Solver(object):
@@ -126,7 +126,8 @@ class Solver(object):
     def restore_model(self):
         """Restore the model"""
         print('Loading the trained models... ')
-        G_path = './exps/trial_1_hash_training/models/260000-G.ckpt'
+        # G_path = './exps/trial_1_hash_training/models/260000-G.ckpt'
+        G_path = './exps/trial_8_hash_training_resnet18/models/6000-G.ckpt'
         g_checkpoint = self._load(G_path)
         self.G.load_state_dict(g_checkpoint['model'])
         self.g_optimizer.load_state_dict(g_checkpoint['optimizer'])
@@ -240,7 +241,7 @@ class Solver(object):
                                         shuffle=True, collate_fn=val_data.collate, drop_last=True)
 
             for batch_number, features in enumerate(train_gen):
-                # try:
+                try:
                     spectrograms = features['spectrograms']
                     one_hots = features['one_hots']
                     metadata = features["metadata"]
@@ -289,8 +290,8 @@ class Solver(object):
                         print('Saved model checkpoints into {}...'.format(self.model_save_dir))
 
                     iterations += 1
-                # except:
-                #     """GPU ran out of memory, batch too big"""
+                except:
+                    """GPU ran out of memory, batch too big"""
 
     def eval(self):
         if not os.path.isdir(config.directories.hashed_embeddings):
@@ -314,12 +315,14 @@ class Solver(object):
                 # Keep in mind, ^^^ could be messing up predictions (try .train() too, had problems
                 # with this in the past
                 spectrograms = spectrograms.to(self.torch_type)
+                if RESNET18:
+                    spectrograms = spectrograms.repeat(1, 3, 1, 1)
                 classification_outputs, hash_outputs, binary_outputs, W = self.G(spectrograms)
 
                 binary_outputs = binary_outputs.detach().cpu().numpy()
                 binary_outputs = np.squeeze(binary_outputs)
 
-                utterance_name = 'p' + metadata[0]['speaker'] + '_' + metadata[0]['utt_number'] + '.pkl'
+                utterance_name = metadata[0]['speaker'] + '_' + metadata[0]['utt_number'] + '_' + metadata[0]['mic'] + '.pkl'
                 dump_path = os.path.join(config.directories.hashed_embeddings, utterance_name)
                 joblib.dump(binary_outputs, dump_path)
             except:
