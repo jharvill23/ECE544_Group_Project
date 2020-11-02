@@ -132,7 +132,7 @@ def get_tsne(continuous, binary):
 
 def main():
     """"""
-    get_tsne(continuous=True, binary=True)
+    get_tsne(continuous=False, binary=True)
 
 
 if __name__ == '__main__':
