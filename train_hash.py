@@ -204,13 +204,15 @@ class Solver(object):
             """Margin loss"""
             index = speaker_indices[i]
             sub_sum = 0
-            for j in range(1, one_hots.shape[1]):  # THIS WAS THE BUG, HAD one_hots.shape[0] which is batch dim, not class dim
+            values_covered = 0
+            for j in range(0, one_hots.shape[1]):  # THIS WAS THE BUG, HAD one_hots.shape[0] which is batch dim, not class dim
                 if j != index:
                     W_j = torch.squeeze(W[j, :])
                     h_i = torch.squeeze(hash_outputs[i])
                     theta_ji = F.cosine_similarity(W_j, h_i, dim=0)
                     term = torch.exp(s*theta_ji)
                     sub_sum += term
+                    values_covered += 1
             W_yi = torch.squeeze(W[index, :])
             h_yi = torch.squeeze(hash_outputs[i])
             theta_yi_i = F.cosine_similarity(W_yi, h_yi, dim=0)
@@ -247,7 +249,7 @@ class Solver(object):
                                         shuffle=True, collate_fn=val_data.collate, drop_last=True)
 
             for batch_number, features in enumerate(train_gen):
-                # try:
+                try:
                     if features != None:
                         spectrograms = features['spectrograms']
 
@@ -305,8 +307,8 @@ class Solver(object):
                             print('Saved model checkpoints into {}...'.format(self.model_save_dir))
 
                         iterations += 1
-                # except:
-                #     """GPU ran out of memory, batch too big"""
+                except:
+                    """GPU ran out of memory, batch too big"""
 
     def eval(self):
         if not os.path.isdir(config.directories.hashed_embeddings):

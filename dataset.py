@@ -29,7 +29,7 @@ class Dataset(data.Dataset):
         spectrogram = joblib.load(file)
 
         """Let's limit spectrograms to 120 to 300 frames"""
-        if spectrogram.shape[0] > 100 and spectrogram.shape[0] < 200:
+        if spectrogram.shape[0] > 100 and spectrogram.shape[0] < 300:
             """Convert spectrogram and one-hot to tensors"""
             spectrogram = torch.from_numpy(spectrogram)
             one_hot = torch.from_numpy(metadata['one_hot'])
