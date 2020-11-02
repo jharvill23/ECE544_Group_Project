@@ -21,6 +21,8 @@ from dataset import Dataset
 import model_hash
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+from torch.cuda.amp import GradScaler, autocast
+
 
 config = edict(yaml.load(open('config.yml'), Loader=yaml.SafeLoader))
 
@@ -50,7 +52,7 @@ class Solver(object):
         # Training configurations.
         self.g_lr = config.model.lr
         self.torch_type = torch.float32
-
+        
         # Miscellaneous.
         self.use_tensorboard = True
         self.use_cuda = torch.cuda.is_available()
@@ -94,6 +96,8 @@ class Solver(object):
             self.G = model_hash.DAMH(config)
         else:
             self.G = model_hash.ResNet18DAMH(config)
+
+        self.scaler = GradScaler()
         self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr)
         self.print_network(self.G, 'G')
         self.G.to(self.device)
@@ -266,23 +270,26 @@ class Solver(object):
 
                         """Pass spectrogram through ResNet"""
                         self.G = self.G.train()  # we have batch normalization layers so this is necessary
-                        spectrograms = spectrograms.to(self.torch_type)
-                        if RESNET18:
-                            spectrograms = spectrograms.repeat(1, 3, 1, 1)
-                        classification_outputs, hash_outputs, binary_outputs, W = self.G(spectrograms)
+                        with autocast():
+                            spectrograms = spectrograms.to(self.torch_type)
+                            if RESNET18:
+                                spectrograms = spectrograms.repeat(1, 3, 1, 1)
+                            
+                            classification_outputs, hash_outputs, binary_outputs, W = self.G(spectrograms)
 
-                        """Take loss"""
-                        loss, margin_loss, hash_loss = self.custom_loss(classification_outputs=classification_outputs,
-                                                hash_outputs=hash_outputs,
-                                                binary_outputs=binary_outputs,
-                                                W=W,
-                                                one_hots=one_hots,
-                                                speaker_indices=speaker_indices, m=m)
+                            """Take loss"""
+                            loss, margin_loss, hash_loss = self.custom_loss(classification_outputs=classification_outputs,
+                                                    hash_outputs=hash_outputs,
+                                                    binary_outputs=binary_outputs,
+                                                    W=W,
+                                                    one_hots=one_hots,
+                                                    speaker_indices=speaker_indices, m=m)
 
                         """Backward and optimize"""
                         self.reset_grad()
-                        loss.backward()
-                        self.g_optimizer.step()
+                        self.scaler.scale(loss).backward()
+                        self.scaler.step(self.g_optimizer)
+                        self.scaler.update()
 
                         if iterations % self.log_step == 0:
                             # print('speaker: ' + metadata['speaker'])
@@ -307,8 +314,9 @@ class Solver(object):
                             print('Saved model checkpoints into {}...'.format(self.model_save_dir))
 
                         iterations += 1
-                except:
+                except Exception as e:
                     """GPU ran out of memory, batch too big"""
+                    print(e)
 
     def eval(self):
         if not os.path.isdir(config.directories.hashed_embeddings):
@@ -331,10 +339,11 @@ class Solver(object):
                 self.G = self.G.eval()  # we have batch normalization layers so this is necessary
                 # Keep in mind, ^^^ could be messing up predictions (try .train() too, had problems
                 # with this in the past
-                spectrograms = spectrograms.to(self.torch_type)
-                if RESNET18:
-                    spectrograms = spectrograms.repeat(1, 3, 1, 1)
-                classification_outputs, hash_outputs, binary_outputs, W = self.G(spectrograms)
+                with autocast():
+                    spectrograms = spectrograms.to(self.torch_type)
+                    if RESNET18:
+                        spectrograms = spectrograms.repeat(1, 3, 1, 1)
+                    classification_outputs, hash_outputs, binary_outputs, W = self.G(spectrograms)
 
                 binary_outputs = binary_outputs.detach().cpu().numpy()
                 binary_outputs = np.squeeze(binary_outputs)
@@ -342,7 +351,7 @@ class Solver(object):
                 utterance_name = metadata[0]['speaker'] + '_' + metadata[0]['utt_number'] + '_' + metadata[0]['mic'] + '.pkl'
                 dump_path = os.path.join(config.directories.hashed_embeddings, utterance_name)
                 joblib.dump(binary_outputs, dump_path)
-            except:
+            except Exception as e:
                 print('Audio too short...')
 
     def to_gpu(self, tensor):
