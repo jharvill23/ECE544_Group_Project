@@ -101,7 +101,7 @@ class ResNet18DAMH(nn.Module):
     def forward(self, x):
         x = self.model(x)
         # x = self.avg_pooling(x)
-        x = x.squeeze()
+        # x = x.squeeze()
         x = self.hash_layer(x)
         x = F.tanh(x)
         hash_outputs = x
