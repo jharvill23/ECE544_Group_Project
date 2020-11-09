@@ -69,12 +69,12 @@ def tsne_data(directory, type):
     random.shuffle(files)
     embeddings = []
     for i, file in tqdm(enumerate(files)):
-        if i < 2000:
+        if i < 200:
             data = joblib.load(file)
             embeddings.append(data)
         i += 1
     embeddings = np.asarray(embeddings)
-    tsne_embeddings = TSNE(n_components=2, verbose=10, perplexity=50).fit_transform(embeddings)
+    tsne_embeddings = TSNE(n_components=2, verbose=10, perplexity=5).fit_transform(embeddings)
     data_to_save = {'filelist': files, 'tsne': tsne_embeddings}  # file in same row as embedding in numpy array
     if type == 'continuous':
         joblib.dump(data_to_save, 'continuous_tsne_embeddings.pkl')

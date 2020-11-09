@@ -24,10 +24,15 @@ import matplotlib.pyplot as plt
 
 config = edict(yaml.load(open('config.yml'), Loader=yaml.SafeLoader))
 
+print(torch.__version__)
+# print(torchvision.__version__)
+
+
+
 if not os.path.exists(config.directories.exps):
     os.mkdir(config.directories.exps)
 
-trial = 'trial_10_hash_training_resnet18'
+trial = 'trial_12_hash_training_resnet18_m_fixed_0.02_lr_0.01'
 exp_dir = os.path.join(config.directories.exps, trial)
 if not os.path.isdir(exp_dir):
     os.mkdir(exp_dir)
@@ -129,7 +134,8 @@ class Solver(object):
         print('Loading the trained models... ')
         # G_path = './exps/trial_1_hash_training/models/260000-G.ckpt'
         # G_path = './exps/trial_8_hash_training_resnet18/models/6000-G.ckpt'
-        G_path = './exps/trial_9_hash_training_resnet18/models/2000-G.ckpt'
+        # G_path = './exps/trial_9_hash_training_resnet18/models/2000-G.ckpt'
+        G_path = './exps/trial_10_hash_training_resnet18/models/90000-G.ckpt'
         g_checkpoint = self._load(G_path)
         self.G.load_state_dict(g_checkpoint['model'])
         self.g_optimizer.load_state_dict(g_checkpoint['optimizer'])
@@ -233,12 +239,12 @@ class Solver(object):
         m = 0
         for epoch in range(config.train.num_epochs):
             # """Just trying setting m large"""
-            # m = 2
+            m = 0.02
 
-            if m < 0.35:
-                m += 0.02
-                if m > 0.35:
-                    m = 0.35
+            # if m < 0.35:
+            #     m += 0.02
+            #     if m > 0.35:
+            #         m = 0.35
 
             """Make dataloader"""
             train_data = Dataset({'files': train})
@@ -321,29 +327,30 @@ class Solver(object):
         val_gen = data.DataLoader(val_data, batch_size=1,
                                   shuffle=True, collate_fn=val_data.collate, drop_last=True)
         for batch_number, features in tqdm(enumerate(train_gen)):
-            spectrograms = features['spectrograms']
-            one_hots = features['one_hots']
-            metadata = features["metadata"]
-            speaker_indices = features["speaker_indices"]
+            if features != None:
+                spectrograms = features['spectrograms']
+                one_hots = features['one_hots']
+                metadata = features["metadata"]
+                speaker_indices = features["speaker_indices"]
 
-            """Pass spectrogram through ResNet"""
-            try:
-                self.G = self.G.eval()  # we have batch normalization layers so this is necessary
-                # Keep in mind, ^^^ could be messing up predictions (try .train() too, had problems
-                # with this in the past
-                spectrograms = spectrograms.to(self.torch_type)
-                if RESNET18:
-                    spectrograms = spectrograms.repeat(1, 3, 1, 1)
-                classification_outputs, hash_outputs, binary_outputs, W = self.G(spectrograms)
+                """Pass spectrogram through ResNet"""
+                try:
+                    self.G = self.G.eval()  # we have batch normalization layers so this is necessary
+                    # Keep in mind, ^^^ could be messing up predictions (try .train() too, had problems
+                    # with this in the past
+                    spectrograms = spectrograms.to(self.torch_type)
+                    if RESNET18:
+                        spectrograms = spectrograms.repeat(1, 3, 1, 1)
+                    classification_outputs, hash_outputs, binary_outputs, W = self.G(spectrograms)
 
-                binary_outputs = binary_outputs.detach().cpu().numpy()
-                binary_outputs = np.squeeze(binary_outputs)
+                    binary_outputs = binary_outputs.detach().cpu().numpy()
+                    binary_outputs = np.squeeze(binary_outputs)
 
-                utterance_name = metadata[0]['speaker'] + '_' + metadata[0]['utt_number'] + '_' + metadata[0]['mic'] + '.pkl'
-                dump_path = os.path.join(config.directories.hashed_embeddings, utterance_name)
-                joblib.dump(binary_outputs, dump_path)
-            except:
-                print('Audio too short...')
+                    utterance_name = metadata[0]['speaker'] + '_' + metadata[0]['utt_number'] + '_' + metadata[0]['mic'] + '.pkl'
+                    dump_path = os.path.join(config.directories.hashed_embeddings, utterance_name)
+                    joblib.dump(binary_outputs, dump_path)
+                except:
+                    print('Audio too short...')
 
     def to_gpu(self, tensor):
         tensor = tensor.to(self.torch_type)
