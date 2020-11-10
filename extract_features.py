@@ -8,8 +8,8 @@ from tqdm import tqdm
 from preprocessing import collect_files
 import yaml
 from easydict import EasyDict as edict
-import pysptk
-from pysptk.synthesis import Synthesizer, MLSADF
+# import pysptk
+# from pysptk.synthesis import Synthesizer, MLSADF
 import matplotlib.pyplot as plt
 import sys
 

@@ -69,7 +69,7 @@ def tsne_data(directory, type):
     random.shuffle(files)
     embeddings = []
     for i, file in tqdm(enumerate(files)):
-        if i < 200:
+        if i < 2000:
             data = joblib.load(file)
             embeddings.append(data)
         i += 1
@@ -132,7 +132,7 @@ def get_tsne(continuous, binary):
 
 def main():
     """"""
-    get_tsne(continuous=False, binary=True)
+    get_tsne(continuous=True, binary=False)
 
 
 if __name__ == '__main__':

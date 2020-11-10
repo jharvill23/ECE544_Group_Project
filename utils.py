@@ -90,23 +90,44 @@ def get_metadata(file):
     one_hot[speaker2class[speaker]] = 1
     return_data = {'speaker': speaker, 'utt_number': utt_number, 'text': text,
                    'speaker_age': additional_data['age'], 'speaker_gender': additional_data['gender'],
-                   'speaker_accent': additional_data['accent'], 'one_hot': one_hot, 'mic': mic}
+                   'speaker_accent': additional_data['accent'], 'one_hot': one_hot, 'mic': mic,
+                   'speaker_class': speaker2class[speaker]}
     return return_data
 
 def get_partition():
     all_files = collect_files(config.directories.features)
-    random.shuffle(all_files)
-    split_index = int(config.hash.train_val_split*len(all_files))
-    train = all_files[0:split_index]
-    val = all_files[split_index:]
-    partition = {'train': train, 'val': val}
-    joblib.dump(partition, 'partition.pkl')
+    if not os.path.exists('partition.pkl'):
+        if not os.path.exists('time_limited_files.pkl'):
+            """Limit audios only to those longer than 300 frames (3 seconds)"""
+            allowable_files = []
+            for file in tqdm(all_files):
+                data = joblib.load(file)
+                # plt.imshow(data.T)
+                # plt.show()
+                if data.shape[0] >= 200 and data.shape[0] <= 350:
+                    allowable_files.append(file)
+            joblib.dump(allowable_files, 'time_limited_files.pkl')
+            # return allowable_files
+        else:
+            allowable_files = joblib.load('time_limited_files.pkl')
+            # return allowable_files
 
+
+        random.shuffle(allowable_files)
+        split_index = int(config.hash.train_val_split*len(allowable_files))
+        train = allowable_files[0:split_index]
+        val = allowable_files[split_index:]
+        partition = {'train': train, 'val': val}
+        joblib.dump(partition, 'partition.pkl')
+        return partition
+    else:
+        partition = joblib.load('partition.pkl')
+        return partition
 
 def main():
     """"""
     # metadata = get_metadata('./features/p225_004_mic2.pkl')
-
+    partition = get_partition()
 
 if __name__ == '__main__':
     main()

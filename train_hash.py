@@ -27,8 +27,6 @@ config = edict(yaml.load(open('config.yml'), Loader=yaml.SafeLoader))
 print(torch.__version__)
 # print(torchvision.__version__)
 
-
-
 if not os.path.exists(config.directories.exps):
     os.mkdir(config.directories.exps)
 

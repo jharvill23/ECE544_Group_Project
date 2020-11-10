@@ -37,13 +37,13 @@ exp_dir = os.path.join(config.directories.exps, trial)
 if not os.path.isdir(exp_dir):
     os.mkdir(exp_dir)
 
-TRAIN = True
-LOAD_MODEL = False
+TRAIN = False
+LOAD_MODEL = True
 RESUME_TRAINING = False
 if RESUME_TRAINING:
     LOAD_MODEL = True
 
-EVAL = False
+EVAL = True
 RESNET18 = False
 
 class Classifier(nn.Module):
@@ -51,34 +51,55 @@ class Classifier(nn.Module):
         super(Classifier, self).__init__()
         self.config = config
         self.vocab_size = 80  # need this for dimension of output of BLSTM
-        self.hidden_size = 150
+        self.hidden_size = 300
         self.batch_first = True
         self.dropout = 0.1
         self.bidirectional = True
         self.adaptive_length = 32
         self.longest_phone_sequence_len = 15  # THIS IS FOR UASPEECH DATASET
         self.lstm = nn.LSTM(input_size=self.vocab_size, hidden_size=self.hidden_size,
-                            num_layers=4, batch_first=self.batch_first,
+                            num_layers=2, batch_first=self.batch_first,
                             dropout=self.dropout, bidirectional=self.bidirectional)
-        self.pool = nn.AdaptiveAvgPool2d(output_size=(self.adaptive_length, self.vocab_size))
-        self.flatten = nn.Flatten(start_dim=1)
-        self.fc1 = nn.Linear(in_features=2560,
+        # self.pool = nn.AdaptiveAvgPool2d(output_size=(self.adaptive_length, self.vocab_size))
+        # self.flatten = nn.Flatten(start_dim=1)
+        self.fc1 = nn.Linear(in_features=self.hidden_size*2,
                             out_features=500)
         self.fc2 = nn.Linear(in_features=500, out_features=500)
         self.fc3 = nn.Linear(in_features=500, out_features=config.vctk.num_speakers)
     def forward(self, x):
         """Classification"""
         x, _ = self.lstm(x)
-        x = self.pool(x)
-        x = self.flatten(x)
+        seq_len = x.size()[1]
+        batch_size = x.size()[0]
+        if self.bidirectional:
+            num_directions = 2
+        else:
+            num_directions = 1
+        # x = x.view(seq_len, batch, num_directions, hidden_size)
+        x = x.view(batch_size, seq_len, num_directions, self.hidden_size)
+        # x_numpy = x.detach().cpu().numpy()
+        # first = x_numpy[0]
+        # forward_numpy = x_numpy[:, -1, 0, :]
+        # backward_numpy = x_numpy[:, 0, 1, :]
+
+        # forward_summary = x[:, -1, 0, :]
+        forward_summary = x[:, seq_len-1, 0, :]
+        backward_summary = x[:, 0, 1, :]
+        summaries = torch.cat((forward_summary, backward_summary), dim=1)
+
+
+
+
+        # x = self.pool(x)
+        # x = self.flatten(x)
         """Concatenate the phones with the flattened input"""
 
-        x = self.fc1(x)
+        x = self.fc1(summaries)
         x = F.relu_(x)
         x = self.fc2(x)
         x = F.relu_(x)
         x = self.fc3(x)
-        x = F.sigmoid(x)  # make it a probability
+        # x = F.sigmoid(x)  # make it a probability
         return x
 
 class Solver(object):
@@ -119,7 +140,7 @@ class Solver(object):
 
         # Step size.
         self.log_step = config.train.log_step
-        self.model_save_step = config.train.model_save_step
+        self.model_save_step = 1000
 
         # Build the model SKIP FOR NOW SO YOU CAN GET DATALOADING DONE
         self.build_model()
@@ -170,7 +191,7 @@ class Solver(object):
         # G_path = './exps/trial_1_hash_training/models/260000-G.ckpt'
         # G_path = './exps/trial_8_hash_training_resnet18/models/6000-G.ckpt'
         # G_path = './exps/trial_9_hash_training_resnet18/models/2000-G.ckpt'
-        G_path = './exps/trial_10_hash_training_resnet18/models/90000-G.ckpt'
+        G_path = './exps/trial_13_CLASSIFICATION/models/84000-G.ckpt'
         g_checkpoint = self._load(G_path)
         self.G.load_state_dict(g_checkpoint['model'])
         self.g_optimizer.load_state_dict(g_checkpoint['optimizer'])
@@ -232,7 +253,12 @@ class Solver(object):
         val = partition['val']
         return train, val
 
+    def get_s2c_and_c2s(self):
+        self.speaker2class = joblib.load('speaker2class.pkl')
+        self.class2speaker = joblib.load('class2speaker.pkl')
+
     def train(self):
+        self.get_s2c_and_c2s()
         iterations = 0
         """Get train/val"""
         train, val = self.get_train_val_split()
@@ -248,10 +274,10 @@ class Solver(object):
 
             """Make dataloader"""
             train_data = Dataset({'files': train})
-            train_gen = data.DataLoader(train_data, batch_size=config.train.batch_size,
+            train_gen = data.DataLoader(train_data, batch_size=4,
                                         shuffle=True, collate_fn=train_data.collate, drop_last=True)
             val_data = Dataset({'files': val})
-            val_gen = data.DataLoader(val_data, batch_size=config.train.batch_size,
+            val_gen = data.DataLoader(val_data, batch_size=32,
                                         shuffle=True, collate_fn=val_data.collate, drop_last=True)
             self.loss_function = torch.nn.CrossEntropyLoss()
             for batch_number, features in enumerate(train_gen):
@@ -278,13 +304,16 @@ class Solver(object):
                             spectrograms = spectrograms.repeat(1, 3, 1, 1)
                         classification_outputs = self.G(spectrograms)
 
-                        """Get the index from one-hots for cross-entropy loss"""
-                        indices = []
-                        for row in one_hots:
-                            indices.append(torch.nonzero(row))
+                        # """Get the index from one-hots for cross-entropy loss"""
+                        # indices = []
+                        # for row in one_hots:
+                        #     indices.append(torch.nonzero(row))
 
-                        indices_ = torch.nn.utils.rnn.pad_sequence(indices, padding_value=0)
+                        speaker_indices = np.asarray(speaker_indices)
+                        indices_ = torch.from_numpy(speaker_indices)
                         indices = torch.squeeze(indices_)
+                        indices = self.to_gpu(indices)
+                        indices = indices.to(torch.long)
 
                         """Take loss"""
                         loss = self.loss_function(input=classification_outputs, target=indices)
@@ -322,36 +351,40 @@ class Solver(object):
             os.mkdir(config.directories.hashed_embeddings)
         train, val = self.get_train_val_split()
         train_data = Dataset({'files': train})
-        train_gen = data.DataLoader(train_data, batch_size=1,
+        train_gen = data.DataLoader(train_data, batch_size=32,
                                     shuffle=True, collate_fn=train_data.collate, drop_last=True)
         val_data = Dataset({'files': val})
-        val_gen = data.DataLoader(val_data, batch_size=1,
+        val_gen = data.DataLoader(val_data, batch_size=32,
                                   shuffle=True, collate_fn=val_data.collate, drop_last=True)
-        for batch_number, features in tqdm(enumerate(train_gen)):
+        incorrect_count = 0
+        total_count = 0
+        for batch_number, features in tqdm(enumerate(val_gen)):
             if features != None:
                 spectrograms = features['spectrograms']
+
                 one_hots = features['one_hots']
                 metadata = features["metadata"]
                 speaker_indices = features["speaker_indices"]
 
                 """Pass spectrogram through ResNet"""
-                try:
-                    self.G = self.G.eval()  # we have batch normalization layers so this is necessary
-                    # Keep in mind, ^^^ could be messing up predictions (try .train() too, had problems
-                    # with this in the past
-                    spectrograms = spectrograms.to(self.torch_type)
-                    if RESNET18:
-                        spectrograms = spectrograms.repeat(1, 3, 1, 1)
-                    classification_outputs, hash_outputs, binary_outputs, W = self.G(spectrograms)
+                self.G = self.G.train()  # we have batch normalization layers so this is necessary
+                spectrograms = spectrograms.to(self.torch_type)
+                spectrograms = torch.squeeze(spectrograms)
+                if RESNET18:
+                    spectrograms = spectrograms.repeat(1, 3, 1, 1)
+                classification_outputs = self.G(spectrograms)
+                classification_outputs = classification_outputs.detach().cpu().numpy()
+                classification_outputs = np.squeeze(classification_outputs)
+                predicted_indices = np.argmax(classification_outputs, axis=1)
+                speaker_indices = np.asarray(speaker_indices)
+                diff = predicted_indices - speaker_indices
+                incorrect_count += np.count_nonzero(diff)
+                total_count += val_gen.batch_size
 
-                    binary_outputs = binary_outputs.detach().cpu().numpy()
-                    binary_outputs = np.squeeze(binary_outputs)
+        accuracy = (total_count - incorrect_count)/total_count
+        print('Accuracy: ' + str(accuracy))
 
-                    utterance_name = metadata[0]['speaker'] + '_' + metadata[0]['utt_number'] + '_' + metadata[0]['mic'] + '.pkl'
-                    dump_path = os.path.join(config.directories.hashed_embeddings, utterance_name)
-                    joblib.dump(binary_outputs, dump_path)
-                except:
-                    print('Audio too short...')
+
 
     def to_gpu(self, tensor):
         tensor = tensor.to(self.torch_type)
