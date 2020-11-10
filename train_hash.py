@@ -30,7 +30,7 @@ print(torch.__version__)
 if not os.path.exists(config.directories.exps):
     os.mkdir(config.directories.exps)
 
-trial = 'trial_12_hash_training_resnet18_m_fixed_0.02_lr_0.01'
+trial = 'trial_14_hash_training_lstm'
 exp_dir = os.path.join(config.directories.exps, trial)
 if not os.path.isdir(exp_dir):
     os.mkdir(exp_dir)
@@ -42,7 +42,8 @@ if RESUME_TRAINING:
     LOAD_MODEL = True
 
 EVAL = False
-RESNET18 = True
+RESNET18 = False
+LSTM_hasher = True
 
 class Solver(object):
     """Solver"""
@@ -93,10 +94,12 @@ class Solver(object):
 
     def build_model(self):
         """Build the model"""
-        if not RESNET18:
-            self.G = model_hash.DAMH(config)
-        else:
+        if LSTM_hasher:
+            self.G = model_hash.LSTM_hasher(config)
+        elif RESNET18:
             self.G = model_hash.ResNet18DAMH(config)
+        else:
+            self.G = model_hash.DAMH(config)
         self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr)
         self.print_network(self.G, 'G')
         self.G.to(self.device)
@@ -150,45 +153,32 @@ class Solver(object):
 
     def val_loss(self, val, iterations):
         """Time to write this function"""
-        self.val_history = {}
         val_loss_value = 0
         for batch_number, features in tqdm(enumerate(val)):
-            spectrograms = features['spectrograms']
-            phones = features['phones']
-            input_lengths = features['input_lengths']
-            target_lengths = features['target_lengths']
-            metadata = features["metadata"]
-            # batch_speakers = [x['speaker'] for x in metadata]
-            self.G = self.G.eval()
+            if batch_number < 41:
+                spectrograms = features['spectrograms']
+                one_hots = features['one_hots']
+                metadata = features["metadata"]
+                speaker_indices = features["speaker_indices"]
 
-            """Make input_lengths and target_lengths torch ints"""
-            input_lengths = input_lengths.to(torch.int32)
-            target_lengths = target_lengths.to(torch.int32)
-            phones = phones.to(torch.int32)
+                """Pass spectrogram through ResNet"""
+                self.G = self.G.eval()
+                spectrograms = spectrograms.to(self.torch_type)
+                if RESNET18:
+                    spectrograms = spectrograms.repeat(1, 3, 1, 1)
+                elif LSTM_hasher:
+                    spectrograms = spectrograms.squeeze()
+                classification_outputs, hash_outputs, binary_outputs, W = self.G(spectrograms)
 
-            spectrograms = spectrograms.to(self.torch_type)
+                """Take loss"""
+                loss, margin_loss, hash_loss = self.custom_loss(classification_outputs=classification_outputs,
+                                                                hash_outputs=hash_outputs,
+                                                                binary_outputs=binary_outputs,
+                                                                W=W,
+                                                                one_hots=one_hots,
+                                                                speaker_indices=speaker_indices)
 
-            outputs = self.G(spectrograms)
-
-            outputs = outputs.permute(1, 0, 2)  # swap batch and sequence length dimension for CTC loss
-
-            loss = self.ctc_loss(log_probs=outputs, targets=phones,
-                                 input_lengths=input_lengths, target_lengths=target_lengths)
-
-            val_loss_value += loss.item()
-            """Update the loss history MUST BE SEPARATE FROM TRAINING"""
-            # self.update_history_val(loss, batch_speakers)
-        """We have the history, now do something with it"""
-        # val_loss_means = {}
-        # for key, value in self.val_history.items():
-        #     val_loss_means[key] = np.mean(np.asarray(value))
-        # val_loss_means_sorted = {k: v for k, v in sorted(val_loss_means.items(), key=lambda item: item[1])}
-        # weights = {}
-        # counter = 1
-        # val_loss_value = 0
-        # for key, value in val_loss_means_sorted.items():
-        #     val_loss_value += (config.train.fairness_lambda * counter + (1-config.train.fairness_lambda) * 1) * value
-        #     counter += 1
+                val_loss_value += loss.item()
 
         return val_loss_value
 
@@ -198,7 +188,7 @@ class Solver(object):
         val = partition['val']
         return train, val
 
-    def custom_loss(self, classification_outputs, hash_outputs, binary_outputs, W, one_hots, speaker_indices, m):
+    def custom_loss(self, classification_outputs, hash_outputs, binary_outputs, W, one_hots, speaker_indices):
         s = config.hash.s
         lambda_ = 0.1*(1/config.model.binary_embedding_length)
         num_examples = classification_outputs.shape[0]  # could use config.train.batch_size too
@@ -220,7 +210,7 @@ class Solver(object):
             W_yi = torch.squeeze(W[index, :])
             h_yi = torch.squeeze(hash_outputs[i])
             theta_yi_i = F.cosine_similarity(W_yi, h_yi, dim=0)
-            main_term = torch.exp(s*(theta_yi_i-m))
+            main_term = torch.exp(s*(theta_yi_i-self.m))
             example_term = torch.log(main_term/(main_term + sub_sum))
             margin_loss += example_term
             """Hash loss"""
@@ -234,15 +224,15 @@ class Solver(object):
         iterations = 0
         """Get train/val"""
         train, val = self.get_train_val_split()
-        m = 0
+        self.m = 0
         for epoch in range(config.train.num_epochs):
             # """Just trying setting m large"""
-            m = 0.02
+            # m = 0.02
 
-            # if m < 0.35:
-            #     m += 0.02
-            #     if m > 0.35:
-            #         m = 0.35
+            if self.m < 0.35 and epoch % 4 == 0:
+                self.m += 0.02
+                if self.m > 0.35:
+                    self.m = 0.35
 
             """Make dataloader"""
             train_data = Dataset({'files': train})
@@ -253,7 +243,7 @@ class Solver(object):
                                         shuffle=True, collate_fn=val_data.collate, drop_last=True)
 
             for batch_number, features in enumerate(train_gen):
-                try:
+                # try:
                     if features != None:
                         spectrograms = features['spectrograms']
 
@@ -273,6 +263,8 @@ class Solver(object):
                         spectrograms = spectrograms.to(self.torch_type)
                         if RESNET18:
                             spectrograms = spectrograms.repeat(1, 3, 1, 1)
+                        elif LSTM_hasher:
+                            spectrograms = spectrograms.squeeze()
                         classification_outputs, hash_outputs, binary_outputs, W = self.G(spectrograms)
 
                         """Take loss"""
@@ -281,7 +273,7 @@ class Solver(object):
                                                 binary_outputs=binary_outputs,
                                                 W=W,
                                                 one_hots=one_hots,
-                                                speaker_indices=speaker_indices, m=m)
+                                                speaker_indices=speaker_indices)
 
                         """Backward and optimize"""
                         self.reset_grad()
@@ -290,19 +282,19 @@ class Solver(object):
 
                         if iterations % self.log_step == 0:
                             # print('speaker: ' + metadata['speaker'])
-                            print(str(iterations) + ', loss: ' + str(loss.item()) + ', margin: ' + str(margin_loss.item()) + ', hash: ' + str(hash_loss.item()) + ', length: ' + str((spectrograms.detach().cpu().numpy()).shape[2]))
+                            print(str(iterations) + ', loss: ' + str(loss.item()) + ', margin: ' + str(margin_loss.item()) + ', hash: ' + str(hash_loss.item()))
                             if self.use_tensorboard:
                                 self.logger.scalar_summary('loss', loss.item(), iterations)
-                                self.logger.scalar_summary('m', m, iterations)
+                                self.logger.scalar_summary('m', self.m, iterations)
                                 self.logger.scalar_summary('margin_loss', margin_loss.item(), iterations)
                                 self.logger.scalar_summary('hash_loss', hash_loss.item(), iterations)
 
                         if iterations % self.model_save_step == 0:
                             """Calculate validation loss"""
-                            # val_loss = self.val_loss(val=val_gen, iterations=iterations)
-                            # print(str(iterations) + ', val_loss: ' + str(val_loss))
-                            # if self.use_tensorboard:
-                            #     self.logger.scalar_summary('val_loss', val_loss, iterations)
+                            val_loss = self.val_loss(val=val_gen, iterations=iterations)
+                            print(str(iterations) + ', val_loss: ' + str(val_loss))
+                            if self.use_tensorboard:
+                                self.logger.scalar_summary('val_loss', val_loss, iterations)
                         """Save model checkpoints."""
                         if iterations % self.model_save_step == 0:
                             G_path = os.path.join(self.model_save_dir, '{}-G.ckpt'.format(iterations))
@@ -311,7 +303,7 @@ class Solver(object):
                             print('Saved model checkpoints into {}...'.format(self.model_save_dir))
 
                         iterations += 1
-                except:
+                # except:
                     """GPU ran out of memory, batch too big"""
 
     def eval(self):

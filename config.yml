@@ -22,14 +22,14 @@ directories:
 
 model:
     batch_first: true
-    lr: 0.01
+    lr: 0.001
     binary_embedding_length: 128
 
 train:
-    log_step: 50
-    model_save_step: 15000
+    log_step: 10
+    model_save_step: 2000
     num_epochs: 50000
-    batch_size: 8
+    batch_size: 16
 
 hash:
     train_val_split: 0.98
