@@ -88,21 +88,6 @@ def get_tsne(continuous, binary):
         """Get tsne for continuous speaker embeddings and save to disk"""
         if not os.path.exists('continuous_tsne_embeddings.pkl'):
             tsne_embeddings = tsne_data(config.directories.continuous_embeddings, type='continuous')
-            # files = collect_files(config.directories.continuous_embeddings)
-            # random.shuffle(files)
-            # #embeddings = np.zeros(shape=(len(files), 256))
-            # embeddings = []
-            # for i, file in tqdm(enumerate(files)):
-            #     if i < 2000:
-            #         data = joblib.load(file)
-            #         embeddings.append(data)
-            #     #embeddings[i] = data
-            #     i += 1
-            # embeddings = np.asarray(embeddings)
-            # tsne_embeddings = TSNE(n_components=2, verbose=10, perplexity=5).fit_transform(embeddings)
-            # data_to_save = {'filelist': files, 'tsne': tsne_embeddings}  # file in same row as embedding in numpy array
-            # joblib.dump(data_to_save, 'continuous_tsne_embeddings.pkl')
-            # tsne_embeddings = data_to_save
         else:
             tsne_embeddings = joblib.load('continuous_tsne_embeddings.pkl')
         save_tsne_plot(tsne_embeddings, type='continuous')
@@ -111,28 +96,13 @@ def get_tsne(continuous, binary):
         """Get tsne for binary speaker embeddings and save to disk"""
         if not os.path.exists('binary_tsne_embeddings.pkl'):
             tsne_embeddings = tsne_data(config.directories.hashed_embeddings, type='binary')
-            # files = collect_files(config.directories.hashed_embeddings)
-            # random.shuffle(files)
-            # #embeddings = np.zeros(shape=(len(files), 256))
-            # embeddings = []
-            # for i, file in tqdm(enumerate(files)):
-            #     if i < 200:
-            #         data = joblib.load(file)
-            #         embeddings.append(data)
-            #     #embeddings[i] = data
-            #     i += 1
-            # embeddings = np.asarray(embeddings)
-            # tsne_embeddings = TSNE(n_components=2, verbose=10, perplexity=5).fit_transform(embeddings)
-            # data_to_save = {'filelist': files, 'tsne': tsne_embeddings}  # file in same row as embedding in numpy array
-            # joblib.dump(data_to_save, 'binary_tsne_embeddings.pkl')
-            # tsne_embeddings = data_to_save
         else:
             tsne_embeddings = joblib.load('binary_tsne_embeddings.pkl')
         save_tsne_plot(tsne_embeddings, type='binary')
 
 def main():
     """"""
-    get_tsne(continuous=True, binary=False)
+    get_tsne(continuous=False, binary=True)
 
 
 if __name__ == '__main__':

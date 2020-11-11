@@ -35,13 +35,13 @@ exp_dir = os.path.join(config.directories.exps, trial)
 if not os.path.isdir(exp_dir):
     os.mkdir(exp_dir)
 
-TRAIN = True
-LOAD_MODEL = False
+TRAIN = False
+LOAD_MODEL = True
 RESUME_TRAINING = False
 if RESUME_TRAINING:
     LOAD_MODEL = True
 
-EVAL = False
+EVAL = True
 RESNET18 = False
 LSTM_hasher = True
 
@@ -136,7 +136,8 @@ class Solver(object):
         # G_path = './exps/trial_1_hash_training/models/260000-G.ckpt'
         # G_path = './exps/trial_8_hash_training_resnet18/models/6000-G.ckpt'
         # G_path = './exps/trial_9_hash_training_resnet18/models/2000-G.ckpt'
-        G_path = './exps/trial_10_hash_training_resnet18/models/90000-G.ckpt'
+        # G_path = './exps/trial_10_hash_training_resnet18/models/90000-G.ckpt'
+        G_path = './exps/trial_14_hash_training_lstm/models/116000-G.ckpt'
         g_checkpoint = self._load(G_path)
         self.G.load_state_dict(g_checkpoint['model'])
         self.g_optimizer.load_state_dict(g_checkpoint['optimizer'])
@@ -309,38 +310,51 @@ class Solver(object):
     def eval(self):
         if not os.path.isdir(config.directories.hashed_embeddings):
             os.mkdir(config.directories.hashed_embeddings)
-        train, val = self.get_train_val_split()
-        train_data = Dataset({'files': train})
+        # train, val = self.get_train_val_split()
+        # all_data = train + val
+
+        all_data = collect_files(config.directories.features)
+
+        train_data = Dataset({'files': all_data})
         train_gen = data.DataLoader(train_data, batch_size=1,
-                                    shuffle=True, collate_fn=train_data.collate, drop_last=True)
-        val_data = Dataset({'files': val})
-        val_gen = data.DataLoader(val_data, batch_size=1,
-                                  shuffle=True, collate_fn=val_data.collate, drop_last=True)
+                                    shuffle=True, collate_fn=train_data.collate, drop_last=False)
+        # val_data = Dataset({'files': val})
+        # val_gen = data.DataLoader(val_data, batch_size=1,
+        #                           shuffle=True, collate_fn=val_data.collate, drop_last=True)
         for batch_number, features in tqdm(enumerate(train_gen)):
             if features != None:
                 spectrograms = features['spectrograms']
+
+                """Debugging, want to check spectrograms first"""
+                # spect_np = np.squeeze(spectrograms.detach().cpu().numpy())
+                # for spect in spect_np:
+                #     plt.imshow(spect.T)
+                #     plt.show()
+                #     stop = None
+
                 one_hots = features['one_hots']
                 metadata = features["metadata"]
                 speaker_indices = features["speaker_indices"]
 
                 """Pass spectrogram through ResNet"""
-                try:
-                    self.G = self.G.eval()  # we have batch normalization layers so this is necessary
-                    # Keep in mind, ^^^ could be messing up predictions (try .train() too, had problems
-                    # with this in the past
-                    spectrograms = spectrograms.to(self.torch_type)
-                    if RESNET18:
-                        spectrograms = spectrograms.repeat(1, 3, 1, 1)
-                    classification_outputs, hash_outputs, binary_outputs, W = self.G(spectrograms)
+                self.G = self.G.train()  # we have batch normalization layers so this is necessary
+                spectrograms = spectrograms.to(self.torch_type)
+                if RESNET18:
+                    spectrograms = spectrograms.repeat(1, 3, 1, 1)
+                elif LSTM_hasher:
+                    spectrograms = spectrograms.squeeze()
+                    spectrograms = spectrograms.unsqueeze(dim=0)
+                classification_outputs, hash_outputs, binary_outputs, W = self.G(spectrograms)
 
-                    binary_outputs = binary_outputs.detach().cpu().numpy()
-                    binary_outputs = np.squeeze(binary_outputs)
+                binary_outputs = binary_outputs.detach().cpu().numpy()
+                binary_outputs = np.squeeze(binary_outputs)
+                binary_outputs = np.ndarray.astype(binary_outputs, dtype=np.int8)
 
-                    utterance_name = metadata[0]['speaker'] + '_' + metadata[0]['utt_number'] + '_' + metadata[0]['mic'] + '.pkl'
-                    dump_path = os.path.join(config.directories.hashed_embeddings, utterance_name)
-                    joblib.dump(binary_outputs, dump_path)
-                except:
-                    print('Audio too short...')
+                utterance_name = metadata[0]['speaker'] + '_' + metadata[0]['utt_number'] + '_' + metadata[0]['mic'] + '.pkl'
+                dump_path = os.path.join(config.directories.hashed_embeddings, utterance_name)
+                joblib.dump(binary_outputs, dump_path)
+                # except:
+                #     print('Audio too short...')
 
     def to_gpu(self, tensor):
         tensor = tensor.to(self.torch_type)
