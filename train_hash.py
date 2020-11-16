@@ -30,7 +30,7 @@ print(torch.__version__)
 if not os.path.exists(config.directories.exps):
     os.mkdir(config.directories.exps)
 
-trial = 'trial_14_hash_training_lstm'
+trial = 'trial_15_hash_training_lstm_16_dim'
 exp_dir = os.path.join(config.directories.exps, trial)
 if not os.path.isdir(exp_dir):
     os.mkdir(exp_dir)
@@ -137,7 +137,8 @@ class Solver(object):
         # G_path = './exps/trial_8_hash_training_resnet18/models/6000-G.ckpt'
         # G_path = './exps/trial_9_hash_training_resnet18/models/2000-G.ckpt'
         # G_path = './exps/trial_10_hash_training_resnet18/models/90000-G.ckpt'
-        G_path = './exps/trial_14_hash_training_lstm/models/116000-G.ckpt'
+        # G_path = './exps/trial_14_hash_training_lstm/models/116000-G.ckpt'
+        G_path = './exps/trial_15_hash_training_lstm_16_dim/models/44000-G.ckpt'
         g_checkpoint = self._load(G_path)
         self.G.load_state_dict(g_checkpoint['model'])
         self.g_optimizer.load_state_dict(g_checkpoint['optimizer'])

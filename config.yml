@@ -23,7 +23,7 @@ directories:
 model:
     batch_first: true
     lr: 0.001
-    binary_embedding_length: 128
+    binary_embedding_length: 16
 
 train:
     log_step: 10
